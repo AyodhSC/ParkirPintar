@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\CheckOutRequest;
+use App\Services\ParkingFeeCalculator;
 use App\Http\Requests\CheckInRequest;
 use App\Models\ParkingArea;
 use App\Models\ParkingRecord;
@@ -54,4 +56,38 @@ class ParkingController extends Controller
             ], 201);
         });
     }
-}   
+
+    public function checkOut(CheckOutRequest $request, ParkingFeeCalculator $calculator): JsonResponse
+    {
+        $data = $request->validated();
+
+         return DB::transaction(function () use ($data, $calculator) {
+            // Kunci record supaya dua check-out bersamaan tidak diproses ganda
+            $record = ParkingRecord::where('plate_number', $data['plate_number'])
+                ->where('status', 'ACTIVE')
+                ->orderByDesc('check_in_at')
+                ->lockForUpdate()
+                ->first();
+
+            if (! $record) {
+                return response()->json([
+                    'message' => "Tidak ada parkir aktif untuk plat {$data['plate_number']} (belum check-in atau sudah check-out).",
+                ], 404);
+            }
+
+            $checkOutAt = now();
+            $fee = $calculator->calculate($record->vehicle_type, $record->check_in_at, $checkOutAt);
+
+            $record->update([
+                'check_out_at' => $checkOutAt,
+                'fee' => $fee,
+                'status' => 'DONE',
+            ]);
+
+            return response()->json([
+                'message' => 'Check-out berhasil.',
+                'data' => $record,
+            ]);
+        });
+    }
+}

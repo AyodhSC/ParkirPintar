@@ -15,6 +15,7 @@ class ParkingRecord extends Model
     protected $casts = [
         'check_in_at' => 'datetime',
         'check_out_at' => 'datetime',
+        'fee' => 'integer',
     ];
 
     public function area(): BelongsTo
