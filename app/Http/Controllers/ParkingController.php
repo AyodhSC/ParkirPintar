@@ -1,0 +1,57 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\CheckInRequest;
+use App\Models\ParkingArea;
+use App\Models\ParkingRecord;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+
+class ParkingController extends Controller
+{
+    public function checkIn(CheckInRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+
+        return DB::transaction(function () use ($data) {
+            // Kunci baris area supaya dua check-in bersamaan tidak melewati kapasitas
+            $area = ParkingArea::whereKey($data['parking_area_id'])->lockForUpdate()->firstOrFail();
+
+            $alreadyInside = ParkingRecord::where('plate_number', $data['plate_number'])
+                ->where('status', 'ACTIVE')
+                ->exists();
+
+            if ($alreadyInside) {
+                return response()->json([
+                    'message' => "Plat {$data['plate_number']} masih berada di dalam area parkir.",
+                ], 409);
+            }
+
+            $capacity = $area->{'capacity_' . $data['vehicle_type']};
+            $occupied = ParkingRecord::where('parking_area_id', $area->id)
+                ->where('vehicle_type', $data['vehicle_type'])
+                ->where('status', 'ACTIVE')
+                ->count();
+
+            if ($occupied >= $capacity) {
+                return response()->json([
+                    'message' => "Area {$area->name} penuh untuk {$data['vehicle_type']}.",
+                ], 409);
+            }
+
+            $record = ParkingRecord::create([
+                'parking_area_id' => $area->id,
+                'plate_number' => $data['plate_number'],
+                'vehicle_type' => $data['vehicle_type'],
+                'check_in_at' => now(),
+                'status' => 'ACTIVE',
+            ]);
+
+            return response()->json([
+                'message' => 'Check-in berhasil.',
+                'data' => $record,
+            ], 201);
+        });
+    }
+}   
