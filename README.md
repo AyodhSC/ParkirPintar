@@ -1,58 +1,241 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# ParkirPintar
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Layanan manajemen parkir gedung perkantoran dengan karcis digital: area parkir dan kapasitas per jenis kendaraan, check-in, check-out dengan perhitungan tarif otomatis, serta laporan okupansi dan pendapatan.
 
-## About Laravel
+Tugas Besar 1 Komputasi Awan 2026-2027 (CI/CD Pipeline Jenkins), **Kelompok 7, studi kasus K07 ParkirPintar**.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Tim
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+| Nama | Peran |
+|---|---|
+| Firza  | Tech Lead / Backend |
+| Fadhil | DevOps Engineer |
+| Jingga | Container Engineer |
+| Rafi   | QA Engineer & Tech Writer |
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Stack
 
-## Learning Laravel
+- Laravel (PHP 8.3), REST API (JSON)
+- MySQL
+- Test: PHPUnit lewat `php artisan test`
+- Container: Docker + Docker Compose
+- CI/CD: Jenkins + GitHub Webhook (Ngrok)
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Fitur
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- CRUD area parkir dan kapasitas per jenis kendaraan (motor/mobil)
+- Check-in kendaraan (plat nomor, jenis, area)
+- Check-out dengan perhitungan tarif
+- Laporan okupansi per area dan pendapatan per hari
+- Endpoint `GET /health` (status aplikasi dan koneksi database)
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## Aturan bisnis
 
-## Agentic Development
+**Tarif**
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+| Jenis | Jam pertama | Jam berikutnya | Maksimal per hari |
+|---|---|---|---|
+| Motor | Rp2.000 | Rp1.000 per jam | Rp20.000 |
+| Mobil | Rp5.000 | Rp3.000 per jam | Rp50.000 |
 
-```bash
-composer require laravel/boost --dev
+- Durasi dibulatkan ke atas per jam (61 menit dihitung 2 jam).
+- Durasi 15 menit atau kurang: gratis (Rp0). Lewat dari itu, ditagih dari total durasi.
+- Batas harian berlaku per blok 24 jam. Parkir 25 jam = 1 blok penuh + tarif 1 jam untuk sisanya.
 
-php artisan boost:install
+**Check-in**
+- Ditolak (409) jika plat yang sama masih berstatus ACTIVE.
+- Ditolak (409) jika area penuh untuk jenis kendaraan tersebut. Kapasitas dihitung per area dan per jenis kendaraan.
+- Plat dinormalisasi (huruf besar, spasi tunggal): `b  1234 xyz` menjadi `B 1234 XYZ`.
+
+**Check-out**
+- Mengubah record ACTIVE menjadi DONE, mengisi `check_out_at` dan `fee`.
+- Ditolak (404) jika tidak ada record ACTIVE untuk plat tersebut.
+
+**Area parkir**
+- Nama area unik.
+- Kapasitas tidak boleh diturunkan di bawah jumlah kendaraan yang sedang parkir (422).
+- Area yang sudah punya riwayat parkir tidak bisa dihapus (409). Set kapasitas ke 0 sebagai gantinya.
+
+## Endpoint API
+
+Semua request API wajib memakai header `Accept: application/json`, kalau tidak Laravel membalas dengan redirect, bukan JSON.
+
+| Method | URL | Keterangan |
+|---|---|---|
+| GET | `/health` | Status aplikasi. 200 jika database terhubung, 503 jika tidak |
+| GET | `/api/areas` | Daftar area |
+| POST | `/api/areas` | Tambah area |
+| GET | `/api/areas/{id}` | Detail area |
+| PUT | `/api/areas/{id}` | Ubah area |
+| DELETE | `/api/areas/{id}` | Hapus area |
+| POST | `/api/check-in` | Check-in kendaraan |
+| POST | `/api/check-out` | Check-out kendaraan |
+| GET | `/api/reports/occupancy` | Laporan okupansi per area |
+| GET | `/api/reports/revenue?date=YYYY-MM-DD` | Laporan pendapatan per hari (default: hari ini) |
+
+Contoh body:
+
+```json
+// POST /api/areas  (juga untuk PUT)
+{ "name": "Gedung A", "capacity_motor": 50, "capacity_mobil": 20 }
+
+// POST /api/check-in
+{ "plate_number": "B 1234 XYZ", "vehicle_type": "motor", "parking_area_id": 1 }
+
+// POST /api/check-out
+{ "plate_number": "B 1234 XYZ" }
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+## Menjalankan di lokal
 
-## Contributing
+### Prasyarat
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+- PHP 8.3 dengan ekstensi: `pdo_mysql`, `pdo_sqlite`, `mbstring`, `openssl`, `fileinfo`, `curl`, `zip`
+- Composer
+- Git
+- MySQL (misalnya dari XAMPP) dengan database kosong bernama `parkirpintar`
 
-## Code of Conduct
+### Langkah
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```bash
+git clone https://github.com/AyodhSC/ParkirPintar
+cd ParkirPintar
+composer install
+cp .env.example .env        # di CMD/PowerShell: copy .env.example .env
+php artisan key:generate
+```
 
-## Security Vulnerabilities
+Buat database `parkirpintar` (lewat phpMyAdmin atau `CREATE DATABASE parkirpintar;`), cek isi `.env` sesuai MySQL Anda, lalu:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+php artisan migrate --seed
+php artisan serve
+```
 
-## License
+Buka `http://127.0.0.1:8000/health`. Hasil yang benar:
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```json
+{"status":"ok","database":"up"}
+```
+
+## Menjalankan test
+
+```bash
+php artisan test
+```
+
+Test memakai SQLite in-memory (diatur di `phpunit.xml`), jadi tidak menyentuh database MySQL lokal dan tidak butuh MySQL saat dijalankan di container atau Jenkins. Semua test harus hijau sebelum membuka Pull Request.
+
+## Variabel lingkungan
+
+`.env` **tidak boleh di-commit**. Yang di-commit hanya `.env.example` (tanpa password asli).
+
+| Variabel | Contoh | Keterangan |
+|---|---|---|
+| `APP_NAME` | `ParkirPintar` | Nama aplikasi |
+| `APP_ENV` | `local` | `production` saat deploy |
+| `APP_KEY` | (hasil `php artisan key:generate`) | Wajib terisi |
+| `APP_DEBUG` | `true` | Harus `false` saat deploy |
+| `APP_URL` | `http://localhost:8000` | URL aplikasi |
+| `APP_TIMEZONE` | `Asia/Jakarta` | Opsional, default sudah Asia/Jakarta |
+| `DB_CONNECTION` | `mysql` | |
+| `DB_HOST` | `127.0.0.1` | Di Docker Compose: nama service database |
+| `DB_PORT` | `3306` | |
+| `DB_DATABASE` | `parkirpintar` | |
+| `DB_USERNAME` | `root` | |
+| `DB_PASSWORD` | (kosong di lokal) | Di server/Jenkins: simpan sebagai secret |
+
+## Alur kerja Git (wajib dibaca semua anggota)
+
+Aturan utama:
+
+1. **Dilarang push langsung ke `main`.** Semua perubahan lewat branch, lalu Pull Request (PR), lalu merge.
+2. **Jangan pernah commit** `.env`, token, atau password. Cek dengan `git status` sebelum commit.
+3. **Setiap anggota harus punya commit sendiri** di repo ini (dinilai dari riwayat GitHub).
+
+### Pertama kali (sekali saja per laptop)
+
+Atur identitas supaya commit tercatat atas nama Anda:
+
+```bash
+git config --global user.name "Nama Anda"
+git config --global user.email "email-yang-dipakai-di-github"
+```
+
+Clone repo (Anda harus sudah diundang sebagai collaborator):
+
+```bash
+git clone <url-repo-kelompok>
+cd <nama-folder-repo>
+```
+
+Kalau diminta login, pakai login lewat browser atau Personal Access Token. Password akun GitHub tidak lagi diterima untuk Git.
+
+### Setiap kali mulai bekerja
+
+```bash
+git checkout main
+git pull                                  # ambil perubahan terbaru
+git checkout -b <nama-branch>             # contoh: docker/dockerfile, devops/jenkinsfile, qa/readme
+```
+
+Penamaan branch: `<bidang>/<hal-singkat>`, contoh `docker/compose`, `devops/jenkinsfile`, `feature/laporan`.
+
+### Setelah selesai mengerjakan sesuatu
+
+```bash
+git status                                # pastikan tidak ada .env atau file rahasia
+git add .
+git commit -m "Pesan singkat tentang apa yang diubah"
+git push -u origin <nama-branch>
+```
+
+Lalu di GitHub: klik **Compare & pull request**, isi judul, **Create pull request**. Minta satu anggota lain melihatnya, lalu **Merge pull request**.
+
+### Setelah PR ter-merge
+
+```bash
+git checkout main
+git pull
+git branch -d <nama-branch>
+```
+
+### Kalau `main` sudah berubah saat Anda masih mengerjakan branch
+
+```bash
+git checkout main
+git pull
+git checkout <nama-branch>
+git merge main
+```
+
+Kalau muncul conflict, buka file yang ditandai di VS Code, pilih versi yang benar, simpan, lalu `git add .` dan `git commit`.
+
+## Catatan untuk Container Engineer
+
+- Port aplikasi: **8000**. Cara paling sederhana: `php artisan serve --host=0.0.0.0 --port=8000`.
+- Base image yang disarankan: `php:8.3-cli`. Tambahkan ekstensi `pdo_mysql` (`docker-php-ext-install pdo_mysql`). `pdo_sqlite` sudah ada di image resmi.
+- Composer: salin dari image `composer`. Stage test pakai `composer install` (dengan dev dependency), stage final pakai `composer install --no-dev --optimize-autoloader`.
+- **Stage test:** jalankan `php artisan test`. Tidak butuh MySQL. Tapi `APP_KEY` harus ada: lakukan `cp .env.example .env && php artisan key:generate` di dalam stage, atau kirim `APP_KEY` sebagai environment variable. Tanpa itu, test akan gagal dengan `MissingAppKeyException`.
+- **Migrasi:** jalankan `php artisan migrate --force` setelah database healthy dan sebelum smoke test. Untuk data contoh: `php artisan db:seed --force`. Perhatikan: `/health` hanya mengecek koneksi database, bukan keberadaan tabel.
+- Variabel yang wajib dikirim ke container aplikasi: `APP_KEY`, `APP_ENV=production`, `APP_DEBUG=false`, dan semua `DB_*`. `DB_HOST` adalah nama service database di `compose.yaml`.
+- Tambahkan `.dockerignore` untuk `vendor`, `.git`, `.env`, dan `node_modules`.
+
+## Catatan untuk DevOps Engineer
+
+- Smoke test: `curl -fsS http://localhost:8000/health` (gagal jika status bukan 200). Boleh ditambah `curl -fsS http://localhost:8000/api/reports/occupancy -H "Accept: application/json"`.
+- Perintah test: `php artisan test`. Untuk laporan JUnit (tantangan K07): `vendor/bin/phpunit --log-junit storage/logs/junit.xml`, lalu publikasikan dengan langkah `junit` di blok `post { always { ... } }`.
+- Jumlah test saat ini lebih dari 60 dan berjalan dalam hitungan detik.
+- `Jenkinsfile` ada di root repository. Credential (Docker Hub, GitHub, secret file `.env`) disimpan di Jenkins Credentials, bukan di kode.
+
+## Troubleshooting
+
+| Masalah | Penyebab dan solusi |
+|---|---|
+| `could not find driver` | Ekstensi `pdo_mysql` atau `pdo_sqlite` belum aktif. Hapus tanda `;` di depan `extension=...` di `php.ini`, lalu buka terminal baru |
+| `composer install` timeout | Masalah jaringan atau DNS. Coba hotspot, ganti DNS ke `8.8.8.8`, atau matikan IPv6 di adapter WiFi |
+| `No application encryption key has been generated` | Jalankan `php artisan key:generate` |
+| `Your local changes would be overwritten by merge` | Commit dulu perubahan Anda, atau simpan sementara dengan `git stash` |
+| `git push` ditolak | Jalankan `git pull` lalu push ulang |
+| Port 8000 dipakai | `php artisan serve --port=8001` |
+| Respons API berupa halaman HTML / redirect | Tambahkan header `Accept: application/json` |
